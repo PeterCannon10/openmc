@@ -403,3 +403,69 @@ def test_redundant_surfaces():
     geom = openmc.Geometry([c3])
     redundant_surfs = geom.remove_redundant_surfaces()
     assert len(redundant_surfs) == 0
+
+
+def test_build_indices():
+    """
+    Testing model
+    """
+    #Materials
+    fuel_material = openmc.Material(name='fuel') #provided_material param
+    fuel_material.add_nuclide('U235', 1.0)
+    fuel_material.set_density('g/cm3', 10.5)
+
+    matrix_material = openmc.Material(name='graphite')
+    matrix_material.add_element('C', 1.0)
+    matrix_material.set_density('g/cm3', 1.8)
+
+    #TRISO template universe including kernel and buffer
+    kernel_sphere = openmc.Sphere(r=0.025)
+    kernel_cell = openmc.Cell(fill=fuel_material, region=-kernel_sphere)
+
+    buffer_sphere = openmc.Sphere(r=0.035)
+    buffer_cell = openmc.Cell(region=+kernel_sphere & -buffer_sphere)
+
+    triso_univ = openmc.Universe(cells=[kernel_cell, buffer_cell]) #fuel_universe param
+
+    #TRISO particle instances
+    triso_1 = openmc.model.TRISO(0.035, triso_univ, center=(0.0, 0.0, 0.0))
+    triso_2 = openmc.model.TRISO(0.035, triso_univ, center=(0.2, 0.0, 0.0))
+    triso_3 = openmc.model.TRISO(0.035, triso_univ, center=(0.0, 0.0, 0.0))
+
+    #Assembly A: matrix containing two TRISO particles
+    box_a = openmc.model.RectangularParallelepiped(-1, 1, -1, 1, -1, 1)
+    matrix_cell_a = openmc.Cell(fill=matrix_material, region=-box_a)
+    assembly_univ_a = openmc.Universe(cells=[triso_1, triso_2, matrix_cell_a])
+
+    #Assembly B: matrix containing one TRISO particle
+    box_b = openmc.model.RectangularParallelepiped(-1, 1, -1, 1, -1, 1)
+    matrix_cell_b = openmc.Cell(fill=matrix_material, region=-box_b)
+    assembly_univ_b = openmc.Universe(cells=[triso_3, matrix_cell_b])
+
+    #Assembly Lattice (RectLattice)
+    assembly_lattice = openmc.RectLattice() #assembly_lattice param
+    assembly_lattice.lower_left = (-1, -1)
+    assembly_lattice.pitch = (2, 2)
+    assembly_lattice.universes = [[assembly_univ_a, assembly_univ_b]]
+
+    lattice_outer = openmc.model.RectangularParallelepiped(-2, 2, -1, 1, -1, 1, boundary_type='vacuum')
+    lattice_cell = openmc.Cell(fill=assembly_lattice, region=-lattice_outer)
+
+    #Root Universe & Geometry
+    root_universe = openmc.Universe(cells=[lattice_cell])
+    geometry = openmc.Geometry(root_universe) #geometry param
+
+    """
+    Testing build_indices
+    """
+    indices = geometry.build_indices(geometry, assembly_lattice, triso_univ, fuel_material)
+
+    print(f'indices: {indices}')
+
+    depletion_materials = {}
+    for index in indices:
+        depletion_materials[index] = fuel_material.clone()
+
+    print(f'depletion_materials: {depletion_materials}')
+
+    assert len(indices) == 3
