@@ -458,7 +458,7 @@ def test_build_indices():
     """
     Testing build_indices
     """
-    indices = geometry.build_indices(geometry, assembly_lattice, triso_univ, fuel_material)
+    indices = geometry.build_indices(assembly_lattice, triso_univ, fuel_material)
 
     print(f'indices: {indices}')
 

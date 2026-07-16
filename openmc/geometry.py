@@ -812,7 +812,7 @@ class Geometry:
         """
         indices = []
 
-        assert fuel_universe in assembly_lattice.get_unique_universes.values()
+        assert fuel_universe in set(assembly_lattice.get_all_universes().values())
 
         self._traverse_for_fuel(
             self.root_universe,
