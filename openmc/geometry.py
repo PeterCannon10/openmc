@@ -781,3 +781,98 @@ class Geometry:
                 all_material_names.add(name)
 
         return model.plot(*args, **kwargs)
+
+    def build_indices(self, assembly_lattice, fuel_universe, provided_material=None):
+        """Determines depletion-zone indices for a given fuel assembly
+
+        Recursively traverses the universe(s) within a lattice, indexing
+        each fuel material matching a ``provided_material`` based on its
+        position within a given assembly lattice ``assembly_lattice``.
+
+        Parameters
+        ----------
+        geometry : openmc.Geometry
+            Geometry containing TRISO particles
+        assembly_lattice : openmc.Lattice
+            The fuel assembly lattice which is the head of the CSG tree
+        fuel_universe : openmc.Universe
+            The reference universe containing fuel that is being searched
+            for
+        provided_material : openmc.Material, optional
+            The provided fuel material used to identify fuel materials in
+            the assembly lattice. If provided, any fuel materials found
+            which do not match are not indexed. If not provided, the
+            algorithm searches for the first material-filled cell.
+
+        Returns
+        -------
+        np.ndarray
+            Array of depletion-zone indices per TRISO particle
+            encountered (in traversal order).
+        """
+        indices = []
+
+        assert fuel_universe in assembly_lattice.get_unique_universes()
+
+        self._traverse_for_fuel(
+            self.root_universe,
+            indices,
+            assembly_lattice,
+            fuel_universe,
+            provided_material,
+            current_token=None
+        )
+        
+        return indices
+    
+    def _get_fuel_material(self, fuel_cell, provided_material=None):
+        """
+        For internal use only, not meant to be called explicitly
+        outside of build_indices
+        """
+        fill_type = fuel_cell.fill_type
+        fill = fuel_cell.fill
+
+        if provided_material is not None:
+            if fill_type == 'material':
+                if fill is provided_material:
+                    return fill
+                else:
+                    return None
+                
+            elif fill_type == 'universe':
+                for cell in fill.cells.values():
+                    material = self._get_fuel_material(cell, provided_material)
+                    if material is not None:
+                        return material
+                    
+    def _traverse_for_fuel(self, universe, indices, assembly_lattice,
+                            fuel_universe, provided_material, current_token):
+        """
+        For internal use only, not meant to be called explicitly
+        outside of build_indices
+        """
+        for cell in universe.cells.values():
+            fill_type = cell.fill_type
+
+            if fill_type == 'universe' and cell.fill is fuel_universe:
+                material = self._get_fuel_material(cell, provided_material)
+                if provided_material is not None and material is None:
+                    continue
+                indices.append(current_token)
+                continue
+            
+            if fill_type == 'universe':
+                self._traverse_for_fuel(cell.fill, indices, assembly_lattice,
+                                         fuel_universe, provided_material, current_token)
+
+            elif fill_type == 'lattice':
+                lattice_fill = cell.fill
+                for index in lattice_fill._natural_indices:
+                    univ = lattice_fill.get_universe(index)
+                    if lattice_fill is assembly_lattice:
+                        next_token = index
+                    else:
+                        next_token = current_token
+                    self._traverse_for_fuel(univ, indices, assembly_lattice,
+                                             fuel_universe, provided_material, next_token)
